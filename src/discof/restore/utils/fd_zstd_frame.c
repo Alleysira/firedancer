@@ -61,7 +61,7 @@ fd_zstd_frame_advance( fd_zstd_frame_t * frame,
           ulong copy_sz = fd_ulong_min( need, data_sz-off );
 
           fd_memcpy( frame->header+frame->header_sz, bytes+off, copy_sz );
-          frame->header_sz += (uchar)copy_sz;
+          frame->header_sz = (uchar)(frame->header_sz + (uchar)copy_sz);
           off              += copy_sz;
         }
 
@@ -81,7 +81,7 @@ fd_zstd_frame_advance( fd_zstd_frame_t * frame,
         ulong copy_sz = fd_ulong_min( need, data_sz-off );
 
         fd_memcpy( frame->block_header+frame->block_header_sz, bytes+off, copy_sz );
-        frame->block_header_sz += (uchar)copy_sz;
+        frame->block_header_sz = (uchar)(frame->block_header_sz + (uchar)copy_sz);
         off                    += copy_sz;
 
         if( FD_UNLIKELY( copy_sz<need ) ) {

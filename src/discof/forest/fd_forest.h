@@ -911,7 +911,7 @@ fd_forest_merkle_last_incorrect_idx( fd_forest_blk_t * ele ) {
 
   uint bad_fec_idx = first_verified_fec == UINT_MAX ? ele->complete_idx / 32UL /* last FEC is wrong */
                                                     : (uint)first_verified_fec - 1;
-  return bad_fec_idx * 32UL;
+  return bad_fec_idx * 32u;
 }
 
 /* fd_forest_publish publishes slot as the new forest root, setting

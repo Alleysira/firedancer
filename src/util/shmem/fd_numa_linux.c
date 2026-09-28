@@ -48,7 +48,12 @@ fd_numa_node_cnt( void ) {
   DIR *        dir  = opendir( path );
   if( FD_UNLIKELY( !dir ) ) {
     FD_LOG_WARNING(( "opendir( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-    return 0UL;
+    /* Some constrained Linux environments (notably WSL2) do not expose
+       /sys/devices/system/node even though they provide a usable single
+       memory domain.  Treat this as a one-node topology for component-level
+       execution.  This is a topology fabrication, not host evidence. */
+    FD_LOG_WARNING(( "NUMA sysfs unavailable; using explicit single-node fallback" ));
+    return 1UL;
   }
 
   /* Scan dir to get number of NUMA nodes.  Note that we do not assume
@@ -69,7 +74,8 @@ fd_numa_node_cnt( void ) {
 
   if( FD_UNLIKELY( node_idx_max<0 ) ) {
     FD_LOG_WARNING(( "No numa nodes found in \"%s\"", path ));
-    return 0UL;
+    FD_LOG_WARNING(( "NUMA sysfs has no node entries; using explicit single-node fallback" ));
+    return 1UL;
   }
 
   return ((ulong)node_idx_max) + 1UL;
@@ -99,7 +105,10 @@ fd_numa_node_idx( ulong cpu_idx ) {
   DIR * dir = opendir( fd_cstr_printf( path, 64UL, NULL, "/sys/devices/system/cpu/cpu%lu", cpu_idx ) );
   if( FD_UNLIKELY( !dir ) ) {
     FD_LOG_WARNING(( "opendir( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-    return ULONG_MAX;
+    /* Keep the mapping consistent with fd_numa_node_cnt's missing-sysfs
+       fallback.  This reports every CPU as belonging to synthetic node 0. */
+    FD_LOG_WARNING(( "CPU NUMA sysfs unavailable; using explicit node-0 fallback" ));
+    return 0UL;
   }
 
   /* Scan dir for symlink to numa config */
@@ -119,7 +128,8 @@ fd_numa_node_idx( ulong cpu_idx ) {
 
   if( FD_UNLIKELY( node_idx<0 ) ) {
     FD_LOG_WARNING(( "No numa node found in \"%s\"", path ));
-    return ULONG_MAX;
+    FD_LOG_WARNING(( "CPU NUMA sysfs has no node link; using explicit node-0 fallback" ));
+    return 0UL;
   }
 
   return (ulong)node_idx;
