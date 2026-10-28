@@ -159,6 +159,11 @@ transition_to_follower( fd_poh_t *          poh,
 static void
 update_hashes_per_tick( fd_poh_t * poh,
                         ulong      hashcnt_per_tick ) {
+  /* A genesis configured with `hashes-per-tick=sleep` has no numeric PoH
+     limit.  Replay encodes that as zero; the low-power PoH state machine
+     uses one hash per tick to represent the same mode.  Normalize before
+     any division or modulo by hashcnt_per_tick. */
+  hashcnt_per_tick = fd_ulong_max( hashcnt_per_tick, 1UL );
   if( FD_UNLIKELY( poh->hashcnt_per_tick!=hashcnt_per_tick ) ) {
     if( FD_UNLIKELY( poh->hashcnt_per_tick!=ULONG_MAX ) ) {
       FD_LOG_WARNING(( "hashes per tick changed from %lu to %lu", poh->hashcnt_per_tick, hashcnt_per_tick ));
