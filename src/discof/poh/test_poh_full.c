@@ -83,12 +83,14 @@ static void mixin( int successful ) {
 }
 
 static void run_case( ulong hashes_per_tick, int with_transactions, ulong skipped ) {
+  FD_LOG_NOTICE(( "case: hashes_per_tick=%lu tx=%d skipped=%lu", hashes_per_tick, with_transactions, skipped ));
   setup( hashes_per_tick, skipped );
   for( ulong t=0UL; t<64UL*skipped; t++ ) {
     test_now += 1000L;
     advance();
   }
-  fd_poh_begin_leader( poh_mem, 11UL+skipped, hashes_per_tick, 64UL, 1000UL, 32UL, test_now );
+  fd_poh_begin_leader( poh_mem, 11UL+skipped, hashes_per_tick, 64UL, 1000UL,
+                       with_transactions ? 9UL : 1UL, test_now );
   while( fd_poh_must_publish_skipped_tick( poh_mem ) ) advance();
   FD_TEST( ticks==64UL*skipped );
   ulong wanted_microblocks = with_transactions ? 8UL : 0UL;
@@ -104,7 +106,8 @@ static void run_case( ulong hashes_per_tick, int with_transactions, ulong skippe
     }
     test_now += 1000L;
     advance();
-    FD_TEST( ticks==64UL*skipped+t+1UL );
+    if( ticks!=64UL*skipped+t+1UL )
+      FD_LOG_ERR(( "tick=%lu got=%lu hashcnt=%lu remaining=%lu", t, ticks, poh_mem->hashcnt, poh_mem->max_microblocks_per_slot-poh_mem->microblocks_lower_bound ));
   }
   FD_TEST( microblocks==wanted_microblocks );
   FD_TEST( completed==1UL );
