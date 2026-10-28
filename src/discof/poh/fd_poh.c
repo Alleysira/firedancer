@@ -475,18 +475,16 @@ fd_poh_advance( fd_poh_t *          poh,
   if( FD_LIKELY( poh->state==STATE_LEADER ) ) {
     max_remaining_microblocks = poh->max_microblocks_per_slot - poh->microblocks_lower_bound;
 
-    /* With hashcnt_per_tick hashes per tick, we actually get
-       hashcnt_per_tick-1 chances to mixin a microblock.  For each tick
-       span that we need to reserve, we also need to reserve the hashcnt
-       for the tick, hence the +
-       max_remaining_microblocks/(hashcnt_per_tick-1) rounded up.
-
-       However, if hashcnt_per_tick is 1 because we're in low power mode,
-       this should probably just be max_remaining_microblocks. */
-    ulong max_remaining_ticks_or_microblocks = max_remaining_microblocks;
-    if( FD_LIKELY( !low_power_mode ) ) max_remaining_ticks_or_microblocks += (max_remaining_microblocks+poh->hashcnt_per_tick-2UL)/(poh->hashcnt_per_tick-1UL);
-
-    restricted_hashcnt = fd_ulong_if( poh->hashcnt_per_slot>=max_remaining_ticks_or_microblocks, poh->hashcnt_per_slot-max_remaining_ticks_or_microblocks, 0UL );
+    if( FD_UNLIKELY( low_power_mode ) ) {
+      /* In sleep mode the clock counts empty ticks, not transaction
+         hashes.  Only the final tick waits for done_packing; reserving
+         one tick per microblock would stall the clock or lose ticks. */
+      restricted_hashcnt = poh->hashcnt_per_slot - (ulong)!!max_remaining_microblocks;
+    } else {
+      ulong reserved = max_remaining_microblocks
+                     + (max_remaining_microblocks+poh->hashcnt_per_tick-2UL)/(poh->hashcnt_per_tick-1UL);
+      restricted_hashcnt = fd_ulong_if( poh->hashcnt_per_slot>=reserved, poh->hashcnt_per_slot-reserved, 0UL );
+    }
   } else {
     max_remaining_microblocks = 0UL;
     restricted_hashcnt        = poh->hashcnt_per_slot;
@@ -732,7 +730,7 @@ publish_microblock( fd_poh_t *          poh,
   fd_entry_batch_meta_t * meta = (fd_entry_batch_meta_t *)dst;
   meta->parent_offset = 1UL+slot-poh->reset_slot;
   meta->reference_tick = (poh->hashcnt/poh->hashcnt_per_tick) % poh->ticks_per_slot;
-  meta->block_complete = !poh->hashcnt;
+  meta->block_complete = poh->hashcnt_per_tick!=1UL && !poh->hashcnt;
 
   meta->parent_block_id_valid = 1;
   fd_memcpy( meta->parent_block_id, poh->completed_block_id, 32UL );
@@ -778,7 +776,7 @@ fd_poh1_mixin( fd_poh_t *                         poh,
   if( FD_UNLIKELY( slot!=poh->next_leader_slot || slot!=poh->slot ) ) {
     FD_LOG_ERR(( "packed too early or late slot=%lu, current_slot=%lu", slot, poh->slot ));
   }
-  /* Low-power mode permits a microblock to advance the tick itself. */
+  /* Sleep-mode transaction hashes do not consume timer ticks. */
   if( FD_UNLIKELY( poh->hashcnt_per_tick!=1UL && (poh->hashcnt%poh->hashcnt_per_tick)==(poh->hashcnt_per_tick-1UL) ) ) FD_LOG_CRIT(( "a tick will be skipped due to hashcnt %lu hashcnt_per_tick %lu", poh->hashcnt, poh->hashcnt_per_tick ));
 
   FD_TEST( poh->state==STATE_LEADER );
@@ -820,6 +818,19 @@ fd_poh1_mixin( fd_poh_t *                         poh,
   fd_memcpy( data, poh->hash, 32UL );
   fd_memcpy( data+32UL, hash, 32UL );
   fd_sha256_hash( data, 64UL, poh->hash );
+
+  if( FD_UNLIKELY( poh->hashcnt_per_tick==1UL ) ) {
+    /* Agave sleep-mode record() adds one hash but does not consume a
+       timer tick.  Keep hashcnt/last_hashcnt as the tick-clock position,
+       and account for this mixin in the entry delta instead.  In
+       particular, a transaction at tick zero must not end the block. */
+    FD_TEST( poh->hashcnt>=poh->last_hashcnt );
+    ulong hashcnt_delta = poh->hashcnt-poh->last_hashcnt+1UL;
+    poh->last_slot = poh->slot;
+    poh->last_hashcnt = poh->hashcnt;
+    publish_microblock( poh, stem, slot, hashcnt_delta, txn_cnt, txns );
+    return;
+  }
 
   poh->hashcnt++;
   FD_TEST( poh->hashcnt>poh->last_hashcnt );
